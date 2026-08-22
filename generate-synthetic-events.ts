@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { RecoveryEvent } from './src/schemas';
+import { RecoveryEvent } from './src/schemas.js';
 
 // Simple pseudo-random number generator for fixed seed
 class PRNG {

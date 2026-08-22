@@ -1,4 +1,4 @@
-import { ActionResult, PolicyDecision, RecoveryEvent } from "./schemas";
+import { ActionResult, PolicyDecision, RecoveryEvent } from "./schemas.js";
 
 /**
  * actionExecutor.ts — Executes recovery actions against Razorpay Test Mode.

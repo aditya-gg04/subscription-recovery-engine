@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { evaluatePolicy } from "../src/policyEngine";
-import { Diagnosis, RecoveryEvent } from "../src/schemas";
+import { evaluatePolicy } from "../src/policyEngine.js";
+import { Diagnosis, RecoveryEvent } from "../src/schemas.js";
 
 function createDummyEvent(overrides: Partial<RecoveryEvent> = {}): RecoveryEvent {
   return {

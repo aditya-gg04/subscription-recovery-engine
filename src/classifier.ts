@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import * as path from 'path';
-import { Diagnosis, RecoveryEvent, RootCauseCategory } from './schemas';
+import { Diagnosis, RecoveryEvent, RootCauseCategory } from './schemas.js';
 
 // Load deterministic mapping from classification_rules.yaml
 interface RuleEntry {

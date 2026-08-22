@@ -1,4 +1,4 @@
-import { Diagnosis, PolicyDecision, RecoveryEvent } from './schemas';
+import { Diagnosis, PolicyDecision, RecoveryEvent } from './schemas.js';
 
 /**
  * policyEngine.ts — Deterministic policy engine.

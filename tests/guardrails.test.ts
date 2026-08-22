@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { evaluatePolicy } from "../src/policyEngine";
-import { Diagnosis, RecoveryEvent, RootCauseCategoryEnum } from "../src/schemas";
+import { evaluatePolicy } from "../src/policyEngine.js";
+import { Diagnosis, RecoveryEvent, RootCauseCategoryEnum } from "../src/schemas.js";
 
 // Helper to create a dummy event
 function createDummyEvent(overrides: Partial<RecoveryEvent> = {}): RecoveryEvent {
