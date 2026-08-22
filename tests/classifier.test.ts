@@ -65,11 +65,15 @@ describe('Classifier', () => {
     expect(diagnosis.confidence).toBe(0.8);
     expect(diagnosis.classification_method).toBe('llm');
     expect(diagnosis.reasoning).toBe('Model determined ambiguous');
-    expect(diagnosis.suggested_timing_hint).toBe('Try again tomorrow');
+    // Timing hints are only requested for timing-sensitive soft declines
+    // (insufficient_funds, transaction_limit_exceeded). Ambiguous results do not get timing hints.
+    expect(diagnosis.suggested_timing_hint).toBeNull();
     
     expect(llmClient.askLLMToClassify).toHaveBeenCalledWith(event);
-    expect(llmClient.askLLMForTimingHint).toHaveBeenCalledWith(event);
+    // askLLMForTimingHint should NOT be called for ambiguous results
+    expect(llmClient.askLLMForTimingHint).not.toHaveBeenCalled();
   });
+
   
   it('T4.2: Should route mapped ambiguous reason to LLM for further detail', async () => {
     const event = createDummyEvent({ error_reason: 'card_declined', payment_method: 'card' });

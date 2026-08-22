@@ -11,11 +11,6 @@ interface RuleEntry {
   note: string;
 }
 
-interface ClassificationConfig {
-  payment_method: string;
-  rules?: RuleEntry[];
-}
-
 let rulesConfig: Record<string, RuleEntry[]> = {};
 let configLoaded = false;
 
@@ -46,6 +41,13 @@ export async function classifyEvent(event: RecoveryEvent): Promise<Diagnosis> {
   const matchedRule = methodRules.find(r => r.error_reason === event.error_reason);
 
   if (matchedRule && matchedRule.category !== "ambiguous") {
+    // Deterministic match — only call timing hint for timing-sensitive soft declines
+    let timingHint: string | null = null;
+    if (matchedRule.category === 'soft_decline' &&
+        (event.error_reason === 'insufficient_funds' || event.error_reason === 'transaction_limit_exceeded')) {
+      timingHint = await askLLMForTimingHint(event);
+    }
+
     return {
       event_id: event.event_id,
       root_cause_category: matchedRule.category,
@@ -53,13 +55,18 @@ export async function classifyEvent(event: RecoveryEvent): Promise<Diagnosis> {
       confidence: 1.0,
       classification_method: "lookup_table",
       reasoning: matchedRule.note,
-      suggested_timing_hint: null
+      suggested_timing_hint: timingHint
     };
   }
 
-  // T4.2: Route unmapped/ambiguous to LLM
+  // T4.2: Route unmapped/ambiguous reasons to LLM
   const llmResult = await askLLMToClassify(event);
-  const timingHint = await askLLMForTimingHint(event); // T4.3: Timing hint
+  // T4.3: Timing hint for LLM-classified soft declines where timing matters
+  let timingHint: string | null = null;
+  if (llmResult.root_cause_category === 'soft_decline' &&
+      (event.error_reason === 'insufficient_funds' || event.error_reason === 'transaction_limit_exceeded')) {
+    timingHint = await askLLMForTimingHint(event);
+  }
 
   return {
     event_id: event.event_id,

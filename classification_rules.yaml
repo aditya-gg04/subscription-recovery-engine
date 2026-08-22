@@ -138,6 +138,47 @@ rules:
       Razorpay's own docs direct this to a support ticket rather than a clear retry/no-retry
       answer; treat as ambiguous, route to LLM, likely resolves to escalate.
 
+  # Cross-method reasons also seen on UPI transactions in practice
+  - error_reason: transaction_limit_exceeded
+    category: soft_decline
+    note: Daily UPI transaction limit reached; retryable after the limit window resets (typically midnight).
+
+  - error_reason: authentication_failed
+    category: ambiguous
+    note: Could be a wrong UPI PIN entry (retry may work) or a deeper issue; route to LLM.
+
+  - error_reason: payment_cancelled
+    category: soft_decline
+    note: Customer cancelled or backed out mid-flow; UPI instrument itself is fine, retry is appropriate.
+
+  - error_reason: payment_failed
+    category: ambiguous
+    note: Generic decline with no further reason disclosed; route to LLM classifier.
+
+  - error_reason: card_declined
+    category: ambiguous
+    note: Ambiguous generic decline for UPI-linked card; route to LLM.
+
+  - error_reason: incorrect_cvv
+    category: hard_decline
+    note: Customer input error on linked card; retry will not succeed without customer correction.
+
+  - error_reason: debit_instrument_inactive
+    category: hard_decline
+    note: Linked card/account not activated for transactions; requires customer action.
+
+  - error_reason: debit_instrument_blocked
+    category: hard_decline
+    note: Linked card/account blocked by bank; requires customer to contact their bank.
+
+  - error_reason: card_expired
+    category: hard_decline
+    note: Linked card is expired; never retry, request updated payment method.
+
+  - error_reason: bank_downtime
+    category: soft_decline
+    note: UPI partner bank downtime; transient, retry is appropriate.
+
 ---
 # Top-level error codes (integration/API-level, not failure-reason specific).
 # These occur when the API call itself was malformed (auth, missing params, rate limits) —

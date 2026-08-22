@@ -40,8 +40,8 @@ async function run() {
       // 1. Classifier
       const diagnosis = await classifyEvent(event);
       
-      // 2. Policy Engine
-      const decision = evaluatePolicy(diagnosis, event);
+      // 2. Policy Engine — pass timing hint for salary-date intelligent scheduling (Section 7.2)
+      const decision = evaluatePolicy(diagnosis, event, diagnosis.suggested_timing_hint);
       
       // (Optional) Generate message if sending nudge
       let messagePayload = null;

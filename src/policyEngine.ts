@@ -2,19 +2,26 @@ import { Diagnosis, PolicyDecision, RecoveryEvent } from './schemas.js';
 
 /**
  * policyEngine.ts — Deterministic policy engine.
- * Pure function: (Diagnosis, event_history) → PolicyDecision
+ * Pure function: (Diagnosis, event_history, timingHint?) → PolicyDecision
  *
  * Evaluation order (R-5):
  *   1. OPT_OUT (G-4)
  *   2. Guardrails G-1 through G-5
  *   3. Base rules from policy_rules.yaml
+ *
+ * timingHint: Optional LLM-suggested ISO timestamp to override retry_at
+ *   (used for insufficient_funds to align with salary-credit windows).
  */
 
 const SEVERE_HARD_DECLINES = [
   'card_expired', 'invalid_card', 'stolen_card', 'restricted_card', 'do_not_honor'
 ];
 
-export function evaluatePolicy(diagnosis: Diagnosis, event: RecoveryEvent): PolicyDecision {
+export function evaluatePolicy(
+  diagnosis: Diagnosis,
+  event: RecoveryEvent,
+  timingHint?: string | null
+): PolicyDecision {
   // G-4 / OPT_OUT
   if (event.customer_opted_out) {
     return {
@@ -46,26 +53,40 @@ export function evaluatePolicy(diagnosis: Diagnosis, event: RecoveryEvent): Poli
   // Base rules evaluation
   if (diagnosis.root_cause_category === "soft_decline") {
     if (event.attempt_number === 1) {
+      // For insufficient_funds: use LLM salary-date timing hint if available (Section 7.2)
+      const retryAt1 = (diagnosis.root_cause_label === 'insufficient_funds' && timingHint)
+        ? timingHint
+        : calculateRetryTime(event.event_timestamp, 24); // G-2 floor
+      const explanation1 = (diagnosis.root_cause_label === 'insufficient_funds' && timingHint)
+        ? `First attempt: retrying near salary-credit window (${timingHint}).`
+        : "First soft decline attempt, scheduling retry.";
       return {
         event_id: event.event_id,
         action_type: "schedule_retry",
         rule_fired: "SOFT_ATTEMPT_1",
-        retry_at: calculateRetryTime(event.event_timestamp, 24), // G-2 floor
+        retry_at: retryAt1,
         max_attempts_allowed: 3,
         current_attempt: event.attempt_number,
         guardrail_triggered: null,
-        explanation: "First soft decline attempt, scheduling retry."
+        explanation: explanation1
       };
     } else if (event.attempt_number === 2) {
+      // For insufficient_funds: use LLM salary-date timing hint if available (Section 7.2)
+      const retryAt2 = (diagnosis.root_cause_label === 'insufficient_funds' && timingHint)
+        ? timingHint
+        : calculateRetryTime(event.event_timestamp, 48); // G-2 floor
+      const explanation2 = (diagnosis.root_cause_label === 'insufficient_funds' && timingHint)
+        ? `Second attempt: aligning retry to salary-credit window (${timingHint}).`
+        : "Second soft decline attempt, scheduling retry with backoff.";
       return {
         event_id: event.event_id,
         action_type: "schedule_retry",
         rule_fired: "SOFT_ATTEMPT_2",
-        retry_at: calculateRetryTime(event.event_timestamp, 48), // G-2 floor
+        retry_at: retryAt2,
         max_attempts_allowed: 3,
         current_attempt: event.attempt_number,
         guardrail_triggered: null,
-        explanation: "Second soft decline attempt, scheduling retry with backoff."
+        explanation: explanation2
       };
     } else if (event.attempt_number === 3) {
       return {
@@ -120,7 +141,8 @@ export function evaluatePolicy(diagnosis: Diagnosis, event: RecoveryEvent): Poli
         explanation: "First ambiguous attempt, scheduling retry."
       };
     } else {
-      // attempt >= 2
+      // attempt >= 2: deliberate policy escalation — not a guardrail cap (G-1 is max-retry-cap
+      // on soft declines only). Ambiguous escalation is its own distinct policy path.
       return {
         event_id: event.event_id,
         action_type: "escalate",
@@ -128,8 +150,8 @@ export function evaluatePolicy(diagnosis: Diagnosis, event: RecoveryEvent): Poli
         retry_at: null,
         max_attempts_allowed: 1,
         current_attempt: event.attempt_number,
-        guardrail_triggered: "G-1",
-        explanation: "Max ambiguous attempts exhausted, escalating."
+        guardrail_triggered: null,
+        explanation: "Ambiguous failure with prior attempt — policy escalates to human review."
       };
     }
   }
