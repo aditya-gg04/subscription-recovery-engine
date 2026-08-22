@@ -1,0 +1,99 @@
+# policy_rules.yaml
+#
+# Encodes the Policy Engine rule table from SPEC.md Section 7 exactly.
+# The Policy Engine is a pure function: (Diagnosis, event_history) → PolicyDecision.
+#
+# Evaluation order (R-5):
+#   1. OPT_OUT — checked first, overrides everything
+#   2. Guardrails G-1 through G-5 (Section 8)
+#   3. Base rules below
+#
+# Retry timing decision (agreed with stakeholder):
+#   All retry windows use a ≥24h floor, including SOFT_ATTEMPT_1,
+#   to uniformly satisfy guardrail G-2 (minimum 24h cooldown between retries).
+
+rules:
+  - rule_id: OPT_OUT
+    condition:
+      customer_opted_out: true
+    action: no_action
+    constraint: "Overrides every other rule unconditionally. No retry, no message, no escalation — only logging."
+    priority: 0   # evaluated first per R-5
+
+  - rule_id: SOFT_ATTEMPT_1
+    condition:
+      root_cause_category: soft_decline
+      attempt_number: 1
+    action: schedule_retry
+    retry_delay_hours: 24
+    constraint: "Timed retry window. ≥24h floor per G-2."
+
+  - rule_id: SOFT_ATTEMPT_2
+    condition:
+      root_cause_category: soft_decline
+      attempt_number: 2
+    action: schedule_retry
+    retry_delay_hours: 48
+    constraint: "Longer backoff than attempt 1. ≥24h floor per G-2."
+
+  - rule_id: SOFT_ATTEMPT_3
+    condition:
+      root_cause_category: soft_decline
+      attempt_number: 3
+    action: send_nudge
+    constraint: "Stop auto-retry. Generate recovery message for the customer."
+
+  - rule_id: SOFT_EXHAUSTED
+    condition:
+      root_cause_category: soft_decline
+      attempt_number_gte: 4
+    action: no_action
+    constraint: "Exhausted. Log as exhausted. Must never re-enter retry path."
+
+  - rule_id: HARD_DECLINE
+    condition:
+      root_cause_category: hard_decline
+    action: send_nudge
+    constraint: "Never schedule_retry. Prompt customer to update payment method."
+    # HARD_DECLINE_SEVERE takes precedence when root_cause_label matches the severe set.
+
+  - rule_id: HARD_DECLINE_SEVERE
+    condition:
+      root_cause_category: hard_decline
+      root_cause_label_in:
+        - do_not_honor
+        - stolen_card
+        - restricted_card
+    action: escalate
+    constraint: "Never retry same instrument, under any condition. Escalate immediately."
+
+  - rule_id: AMBIGUOUS_ATTEMPT_1
+    condition:
+      root_cause_category: ambiguous
+      attempt_number: 1
+    action: schedule_retry
+    retry_delay_hours: 24
+    constraint: "Single attempt only. ≥24h floor per G-2."
+
+  - rule_id: AMBIGUOUS_ATTEMPT_2
+    condition:
+      root_cause_category: ambiguous
+      attempt_number_gte: 2
+    action: escalate
+    constraint: "No further automated attempts. Route to human review."
+
+# Guardrails (Section 8) — enforced in code, documented here for reference.
+# These are NOT evaluated from this YAML; they are hard-coded checks in policyEngine.ts.
+guardrails_reference:
+  - id: G-1
+    description: "Max 3 automated retries per subscription/payment instrument."
+  - id: G-2
+    description: "Minimum 24h cooldown between retry attempts on the same instrument."
+  - id: G-3
+    description: "Never schedule_retry for: card_expired, invalid_card, stolen_card, restricted_card, do_not_honor."
+  - id: G-4
+    description: "customer_opted_out = true blocks all actions except logging."
+  - id: G-5
+    description: "If retry amount differs from original event amount, block and escalate."
+  - id: G-6
+    description: "DRY_RUN flag: all logic runs but no live Razorpay API calls."

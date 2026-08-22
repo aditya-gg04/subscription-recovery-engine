@@ -1,0 +1,148 @@
+# classification_rules.yaml
+#
+# Source of truth: Razorpay official documentation, fetched and verified directly.
+#   - https://razorpay.com/docs/errors/payments/cards/
+#   - https://razorpay.com/docs/errors/payments/upi/
+#   - https://razorpay.com/docs/errors/common/
+#   - https://razorpay.com/docs/errors/payments/payment-methods-error-parameters/
+#
+# Satisfies SPEC.md R-1 / R-4 / AC-5. No placeholder values remain below.
+#
+# error_source real enum (per Razorpay docs, cards): customer | business | internal | gateway | issuer_bank
+# (This replaces the earlier placeholder guess of customer|bank|gateway|business in SPEC.md Section 5.1 —
+#  see the corresponding SPEC.md patch.)
+#
+# Category definitions (SPEC.md Section 6):
+#   soft_decline = transient, instrument valid, retry has reasonable success chance
+#   hard_decline = instrument invalid/blocked, or bank refused definitively; retry will not help
+#   ambiguous    = insufficient info to classify deterministically; route to LLM
+
+payment_method: card
+rules:
+  - error_reason: payment_timed_out
+    category: soft_decline
+    note: Customer exceeded the payment processing time window (typically 10 min); transient.
+
+  - error_reason: gateway_technical_error
+    category: soft_decline
+    note: Partner bank/gateway downtime; transient, not instrument-related.
+
+  - error_reason: payment_cancelled
+    category: soft_decline
+    note: Customer cancelled or backed out mid-flow; instrument itself is fine.
+
+  - error_reason: bank_downtime
+    category: soft_decline
+    note: Customer's bank had a downtime window; transient.
+
+  - error_reason: card_declined
+    category: ambiguous
+    note: >
+      Razorpay states banks often don't disclose the specific decline reason;
+      genuinely ambiguous without more context — route to LLM classifier.
+
+  - error_reason: insufficient_funds
+    category: soft_decline
+    note: Classic soft decline; recoverable, timing-sensitive (retry near salary-credit dates).
+
+  - error_reason: card_not_enrolled
+    category: hard_decline
+    note: Card not enabled for online transactions by the customer; retry won't help until customer acts.
+
+  - error_reason: bank_technical_error
+    category: soft_decline
+    note: Customer's bank had a downtime window; transient.
+
+  - error_reason: card_disabled_for_online_payments
+    category: hard_decline
+    note: Requires customer to enable the card via their bank; auto-retry cannot fix this.
+
+  - error_reason: authentication_failed
+    category: ambiguous
+    note: Could be a genuine OTP/3DS entry mistake (retry may work) or a deeper issue; route to LLM.
+
+  - error_reason: payment_risk_check_failed
+    category: hard_decline
+    note: >
+      Bank flagged the transaction as fraudulent. Treat like do_not_honor-class declines —
+      never auto-retry, escalate per G-3/HARD_DECLINE_SEVERE.
+
+  - error_reason: payment_failed
+    category: ambiguous
+    note: Generic bank decline with no further detail disclosed to Razorpay; route to LLM.
+
+  - error_reason: incorrect_cvv
+    category: hard_decline
+    note: Customer input error; retrying the same request will not succeed without new input.
+
+  - error_reason: debit_instrument_inactive
+    category: hard_decline
+    note: Card not activated for online use by the customer; requires customer action.
+
+  - error_reason: debit_instrument_blocked
+    category: hard_decline
+    note: Card blocked by customer or bank; requires customer action with their bank.
+
+  - error_reason: card_expired
+    category: hard_decline
+    note: Instrument itself is invalid; never retry, request updated payment method.
+
+  - error_reason: transaction_limit_exceeded
+    category: soft_decline
+    note: Daily card limit reached; may succeed on retry after the limit window resets.
+
+---
+payment_method: upi
+rules:
+  - error_reason: bank_technical_error
+    category: soft_decline
+    note: UPI provider/downtime issue; transient.
+
+  - error_reason: credit_failed
+    category: hard_decline
+    note: >
+      Customer's bank-account/VPA mismatch with registration; requires customer to
+      select the correct linked account — auto-retry on the same request won't help.
+
+  - error_reason: partner_bank_downtime
+    category: soft_decline
+    note: Partner bank downtime; transient.
+
+  - error_reason: gateway_technical_error
+    category: soft_decline
+    note: Partner bank technical issue; transient.
+
+  - error_reason: insufficient_funds
+    category: soft_decline
+    note: Classic soft decline; recoverable, timing-sensitive.
+
+  - error_reason: invalid_vpa
+    category: hard_decline
+    note: Customer has not completed VPA/UPI registration; requires customer action.
+
+  - error_reason: payment_collect_request_expired
+    category: soft_decline
+    note: Customer exceeded the ~10 min collect-request window; a fresh request can succeed.
+
+  - error_reason: payment_declined
+    category: ambiguous
+    note: Funds not debited, no further reason disclosed; route to LLM classifier.
+
+  - error_reason: payment_timed_out
+    category: soft_decline
+    note: Customer exceeded the payment processing time window; transient.
+
+  - error_reason: vpa_resolution_failed
+    category: ambiguous
+    note: >
+      Razorpay's own docs direct this to a support ticket rather than a clear retry/no-retry
+      answer; treat as ambiguous, route to LLM, likely resolves to escalate.
+
+---
+# Top-level error codes (integration/API-level, not failure-reason specific).
+# These occur when the API call itself was malformed (auth, missing params, rate limits) —
+# they are not "payment declined" events and should not enter the RecoveryEvent pipeline at all.
+# Recorded here for completeness per R-1, out of scope for classification per SPEC.md NG-adjacent reasoning.
+non_actionable_top_level_codes:
+  - BAD_REQUEST_ERROR   # integration error: bad params, invalid ID, auth issue, rate limit
+  - SERVER_ERROR        # transient Razorpay-side error, retry the API call itself (not a customer-facing decline)
