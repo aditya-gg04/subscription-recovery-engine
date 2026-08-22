@@ -19,6 +19,11 @@ interface ClassificationConfig {
 let rulesConfig: Record<string, RuleEntry[]> = {};
 let configLoaded = false;
 
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 function loadConfig() {
   if (configLoaded) return;
   const configPath = path.resolve(__dirname, '../classification_rules.yaml');

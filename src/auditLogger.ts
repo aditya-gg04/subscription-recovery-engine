@@ -1,11 +1,21 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { AuditLogEntry } from './schemas.js';
+
 /**
- * auditLogger.ts — Append-only audit log writer.
- *
- * Appends one AuditLogEntry per event to audit_log.jsonl.
- * No update or delete function exists on this module. (R-2)
- *
- * Satisfies: SPEC Section 5.5, R-2, NFR-4
- * Implementation: Day 5 (T5.3)
+ * auditLogger.ts — Strictly append-only JSONL event writing.
  */
 
-// TODO: T5.3 — append-only JSONL writer
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Place the log in the project root
+const logFilePath = path.resolve(__dirname, '../../audit_log.jsonl');
+
+export function logAuditEntry(entry: AuditLogEntry): void {
+  // R-2: Append-only JSONL format
+  const jsonlLine = JSON.stringify(entry) + '\n';
+  fs.appendFileSync(logFilePath, jsonlLine, { encoding: 'utf8' });
+}
