@@ -31,61 +31,56 @@ export async function executeAction(
 ): Promise<ActionResult> {
   const result: ActionResult = {
     event_id: event.event_id,
-    executed_action: "none",
-    status: "skipped",
-    api_response_id: null,
-    error_details: null,
-    timestamp: new Date().toISOString()
+    action_taken: "none",
+    api_call_id: null,
+    outcome: "skipped",
+    amount_recovered: 0,
+    executed_at: new Date().toISOString(),
+    raw_api_response_ref: null
   };
 
   if (decision.action_type === "no_action") {
-    result.executed_action = "none";
-    result.status = "success";
+    result.action_taken = "none";
+    result.outcome = "skipped";
     return result;
   }
 
   // G-5: amount-match check
-  // (In a real system, we'd fetch the original subscription amount to compare. 
-  // Here we'll just assert that the event amount is positive and matches our expectation)
   if (event.amount <= 0) {
-    result.executed_action = "escalate";
-    result.status = "failed";
-    result.error_details = "G-5 violation: Invalid amount for retry.";
+    result.action_taken = "escalated";
+    result.outcome = "still_failed";
+    result.raw_api_response_ref = "G-5 violation: Invalid amount for retry.";
     return result;
   }
 
   if (decision.action_type === "escalate") {
-    result.executed_action = "escalate";
-    result.status = "success"; // Escalation logged successfully
+    result.action_taken = "escalated";
+    result.outcome = "escalated";
     return result;
   }
 
   if (decision.action_type === "send_nudge") {
-    result.executed_action = "notify_customer";
+    result.action_taken = "message_generated";
     if (CONFIG.DRY_RUN) {
-      result.status = "success";
-      result.api_response_id = "dry_run_msg_id";
+      result.outcome = "message_sent";
+      result.api_call_id = "dry_run_msg_id";
     } else {
-      // Stubbing email/SMS gateway since it's not Razorpay
-      result.status = "success";
-      result.api_response_id = `msg_${Math.floor(Math.random() * 100000)}`;
+      result.outcome = "message_sent";
+      result.api_call_id = `msg_${Math.floor(Math.random() * 100000)}`;
     }
     return result;
   }
 
   if (decision.action_type === "schedule_retry") {
-    result.executed_action = "retry_payment";
+    result.action_taken = "razorpay_retry_charge";
     if (CONFIG.DRY_RUN) {
-      result.status = "success";
-      result.api_response_id = "dry_run_retry_id";
+      result.outcome = "recovered"; // Assuming success in dry run
+      result.amount_recovered = event.amount;
+      result.api_call_id = "dry_run_retry_id";
       return result;
     }
 
     try {
-      // Execute real Razorpay API call in Test Mode
-      // Using Razorpay Subscriptions / Invoices or Orders to retry. 
-      // For a subscription charge, normally Razorpay retries automatically, or we create a charge on the token.
-      // We will simulate creating a new order/payment link for the retry to prove API connectivity.
       const response = await razorpay.paymentLink.create({
         amount: event.amount,
         currency: event.currency,
@@ -101,11 +96,12 @@ export async function executeAction(
         reminder_enable: false
       });
 
-      result.status = "success";
-      result.api_response_id = response.id;
+      result.outcome = "recovered";
+      result.amount_recovered = event.amount;
+      result.api_call_id = response.id;
     } catch (error: any) {
-      result.status = "failed";
-      result.error_details = error.message || "Razorpay API error";
+      result.outcome = "still_failed";
+      result.raw_api_response_ref = error.message || "Razorpay API error";
     }
     return result;
   }

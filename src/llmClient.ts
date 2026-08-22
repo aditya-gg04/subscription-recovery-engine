@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import Groq from 'groq-sdk';
 import { RecoveryEvent, RootCauseCategory } from './schemas.js';
 
@@ -25,15 +25,15 @@ const classifyFailureTool = {
   name: "classify_failure",
   description: "Classifies a failed payment event based on the error reason and other details.",
   parameters: {
-    type: "OBJECT",
+    type: SchemaType.OBJECT,
     properties: {
       category: {
-        type: "STRING",
+        type: SchemaType.STRING,
         description: "Must be one of: 'soft_decline', 'hard_decline', 'ambiguous'.",
         enum: ["soft_decline", "hard_decline", "ambiguous"]
       },
       reasoning: {
-        type: "STRING",
+        type: SchemaType.STRING,
         description: "Reasoning for the classification."
       }
     },
@@ -45,10 +45,10 @@ const suggestRetryTimingTool = {
   name: "suggest_retry_timing",
   description: "Suggests the best timing to retry a payment based on the error.",
   parameters: {
-    type: "OBJECT",
+    type: SchemaType.OBJECT,
     properties: {
       timing_hint: {
-        type: "STRING",
+        type: SchemaType.STRING,
         description: "The suggested timing hint (e.g. 'Retry around salary day')."
       }
     },
@@ -60,10 +60,10 @@ const generateRecoveryMessageTool = {
   name: "generate_recovery_message",
   description: "Generates an outbound message to a customer about their failed payment.",
   parameters: {
-    type: "OBJECT",
+    type: SchemaType.OBJECT,
     properties: {
       message_text: {
-        type: "STRING",
+        type: SchemaType.STRING,
         description: "The recovery message content to send."
       }
     },
