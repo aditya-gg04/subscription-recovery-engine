@@ -103,7 +103,7 @@ Method: ${event.payment_method}`;
   try {
     const completion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama3-70b-8192',
+      model: 'mixtral-8x7b-32768',
       tools: [{
         type: 'function',
         function: {
@@ -123,14 +123,13 @@ Method: ${event.payment_method}`;
         reasoning: args.reasoning
       };
     }
-  } catch (error) {
-    console.warn("Groq classification also failed.", error);
+  } catch (error: any) {
+    // LLM fallback
   }
 
-  // Fallback if both fail
   return {
     root_cause_category: "ambiguous",
-    reasoning: "LLM classification failed on both primary and fallback."
+    reasoning: "LLM classification fallback triggered."
   };
 }
 

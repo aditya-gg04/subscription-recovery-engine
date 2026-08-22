@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Place the log in the project root
-const logFilePath = path.resolve(__dirname, '../../audit_log.jsonl');
+const logFilePath = path.resolve(__dirname, '../audit_log.jsonl');
 
 export function logAuditEntry(entry: AuditLogEntry): void {
   // R-2: Append-only JSONL format
