@@ -14,11 +14,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function run() {
+  const inputFileArg = process.argv[2] || 'synthetic_events.json';
+  const shouldAppend = process.argv.includes('--append');
+  
   console.log(`Starting Batch Run... DRY_RUN is ${CONFIG.DRY_RUN}`);
-  const inputFilePath = path.resolve(__dirname, 'synthetic_events.json');
+  console.log(`Input File: ${inputFileArg}`);
+
+  const inputFilePath = path.resolve(__dirname, inputFileArg);
   const auditFilePath = path.resolve(__dirname, 'audit_log.jsonl');
 
-  if (fs.existsSync(auditFilePath)) {
+  if (!shouldAppend && fs.existsSync(auditFilePath)) {
     console.log('Clearing old audit log for fresh batch run...');
     fs.unlinkSync(auditFilePath);
   }
@@ -26,7 +31,7 @@ async function run() {
   const fileContents = fs.readFileSync(inputFilePath, 'utf8');
   const events: RecoveryEvent[] = JSON.parse(fileContents);
   
-  console.log(`Loaded ${events.length} events from development set.`);
+  console.log(`Loaded ${events.length} events from ${inputFileArg}.`);
 
   for (const event of events) {
     try {
@@ -49,11 +54,13 @@ async function run() {
 
       // 4. Audit Logger
       const logEntry: AuditLogEntry = {
+        event_id: event.event_id,
         event,
         diagnosis,
-        decision,
-        result,
-        created_at: new Date().toISOString()
+        policy_decision: decision,
+        action_result: result,
+        pipeline_version: "1.0.0",
+        logged_at: new Date().toISOString()
       };
       
       logAuditEntry(logEntry);

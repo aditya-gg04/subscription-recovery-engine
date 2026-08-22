@@ -82,7 +82,7 @@ Method: ${event.payment_method}`;
   // Try Gemini first
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [classifyFailureTool] }]
     });
 
@@ -103,7 +103,7 @@ Method: ${event.payment_method}`;
   try {
     const completion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.1-8b-instant',
+      model: 'llama3-70b-8192',
       tools: [{
         type: 'function',
         function: {
@@ -138,7 +138,7 @@ export async function askLLMForTimingHint(event: RecoveryEvent): Promise<string 
   // Try Gemini
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [suggestRetryTimingTool] }]
     });
     const prompt = `Suggest a retry timing hint for failure: ${event.error_reason}`;
@@ -158,7 +158,7 @@ export async function askLLMToGenerateMessage(event: RecoveryEvent): Promise<str
   // Try Gemini
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [generateRecoveryMessageTool] }]
     });
     const prompt = `Generate a polite recovery message for user ${event.customer_name} whose ${event.payment_method} payment failed due to ${event.error_reason}.`;
