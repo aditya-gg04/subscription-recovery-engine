@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AuditLogEntry } from './types';
-import { ShieldCheck, Zap, AlertTriangle, CheckCircle, Search, RefreshCw, X, ArrowUpRight, TrendingUp, Activity } from 'lucide-react';
+import { ShieldCheck, Zap, AlertTriangle, CheckCircle, Search, RefreshCw, X, ArrowUpRight, TrendingUp, Activity, Send, Mic } from 'lucide-react';
 
 export default function App() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
@@ -26,6 +26,113 @@ export default function App() {
   useEffect(() => {
     fetchLogs();
   }, []);
+
+  // ── Live Demo Streaming ──────────────────────────────────────────────────
+  const [showDemoModal, setShowDemoModal] = useState(false);
+  const [demoOutput, setDemoOutput] = useState<string[]>([]);
+  const [demoRunning, setDemoRunning] = useState(false);
+
+  // ── Promise-to-Pay Chat ──────────────────────────────────────────────────
+  type ChatMessage = { role: 'agent' | 'customer' | 'system'; text: string };
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [ptpLoading, setPtpLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+
+  // Seed the chat with the agent's nudge message when an entry is selected
+  useEffect(() => {
+    if (selectedEntry) {
+      const nudge = selectedEntry.action_result?.raw_api_response_ref;
+      const seed: ChatMessage[] = [];
+      // Show a synthetic agent message that looks like a WhatsApp nudge
+      seed.push({
+        role: 'agent',
+        text: nudge && !nudge.toLowerCase().includes('error')
+          ? nudge
+          : `Namaste ${selectedEntry.event?.customer_name?.split(' ')[0] || 'ji'}! Aapka ₹${((selectedEntry.event?.amount || 0) / 100).toLocaleString('en-IN')} ka payment fail hua. Kya aap abhi retry kar sakte hain? 🙏`
+      });
+      setChatMessages(seed);
+      setChatInput('');
+    }
+  }, [selectedEntry?.event_id]);
+
+  const sendChatReply = async () => {
+    if (!chatInput.trim() || !selectedEntry) return;
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'customer', text: userMsg }]);
+    setPtpLoading(true);
+    try {
+      const res = await fetch('http://localhost:3000/api/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: selectedEntry.event_id, message: userMsg })
+      });
+      const data = await res.json();
+      if (data.ptp?.is_promise_to_pay && data.ptp?.proposed_date_iso) {
+        const date = new Date(data.ptp.proposed_date_iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+        setChatMessages(prev => [...prev,
+          { role: 'system', text: `🤝 Promise to Pay detected! Retry rescheduled to ${date}.` }
+        ]);
+        // Refresh logs to show the updated retry date
+        setTimeout(fetchLogs, 800);
+      } else {
+        setChatMessages(prev => [...prev,
+          { role: 'agent', text: 'Samajh gaye. Hum aapko ek reminder bhejenge. Koi bhi takleef ho to batayein! 🙏' }
+        ]);
+      }
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'system', text: 'Error: Could not reach the AI backend.' }]);
+    } finally {
+      setPtpLoading(false);
+    }
+  };
+
+  // ── Voice Simulation ─────────────────────────────────────────────────────
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const playVoiceSimulation = (text: string) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    // Prefer a Hindi/Indian English voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const hindiVoice = voices.find(v => v.lang.startsWith('hi') || v.lang.startsWith('en-IN'));
+    if (hindiVoice) utter.voice = hindiVoice;
+    utter.rate = 0.9;
+    utter.pitch = 1.1;
+    utter.onstart = () => setIsSpeaking(true);
+    utter.onend = () => setIsSpeaking(false);
+    utter.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utter);
+  };
+
+  const stopVoice = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  };
+
+  const startLiveDemo = () => {
+    setShowDemoModal(true);
+    setDemoOutput([]);
+    setDemoRunning(true);
+
+    const es = new EventSource('http://localhost:3000/api/simulate');
+    
+    es.onmessage = (event) => {
+      setDemoOutput(prev => [...prev, event.data]);
+    };
+
+    es.onerror = () => {
+      es.close();
+      setDemoRunning(false);
+      // Wait a moment then refresh logs since a new one was appended
+      setTimeout(fetchLogs, 1000);
+    };
+  };
 
   // ── Metrics ────────────────────────────────────────────────────────────────
 
@@ -96,9 +203,14 @@ export default function App() {
             : <span className="badge badge-dry-run">🔵 DRY RUN</span>
           }
         </div>
-        <button onClick={fetchLogs} className="search-input" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-          <RefreshCw size={14} /> Refresh Data
-        </button>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button onClick={startLiveDemo} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
+            <Zap size={14} /> Simulate Live Failure
+          </button>
+          <button onClick={fetchLogs} className="search-input" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <RefreshCw size={14} /> Refresh Data
+          </button>
+        </div>
       </header>
 
       {/* High-level KPI Cards */}
@@ -339,11 +451,14 @@ export default function App() {
 
       {/* Event Details Modal */}
       {selectedEntry && (
-        <div className="modal-backdrop" onClick={() => setSelectedEntry(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-backdrop" onClick={() => { setSelectedEntry(null); stopVoice(); }}>
+          <div className="modal-content" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
             <div className="panel-header">
-              <h3>Audit Detail: {selectedEntry.event_id}</h3>
-              <button onClick={() => setSelectedEntry(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <ShieldCheck size={16} color="#3b82f6" />
+                {selectedEntry.event_id}
+              </h3>
+              <button onClick={() => { setSelectedEntry(null); stopVoice(); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                 <X size={20} />
               </button>
             </div>
@@ -400,12 +515,112 @@ export default function App() {
                 </div>
               )}
 
-              {selectedEntry.action_result?.raw_api_response_ref && (
-                <div style={{ color: '#f87171', fontSize: '0.8rem' }}>
-                  <strong>Error:</strong> {selectedEntry.action_result.raw_api_response_ref}
+              {/* ── 🎙️ Hinglish Voice Recovery ── */}
+              <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.75rem', padding: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <strong style={{ color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Mic size={14} /> Hinglish Voice Recovery Simulation
+                  </strong>
+                  {isSpeaking ? (
+                    <button onClick={stopVoice} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <div className="waveform-container" style={{ height: '14px' }}>
+                        <div className="waveform-bar" /><div className="waveform-bar" /><div className="waveform-bar" /><div className="waveform-bar" /><div className="waveform-bar" />
+                      </div>
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => playVoiceSimulation(chatMessages[0]?.text || 'Namaste! Aapka payment fail hua hai. Please retry karein.')}
+                      style={{ background: '#6366f1', color: 'white', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    >
+                      ▶ Play Voice Call
+                    </button>
+                  )}
                 </div>
-              )}
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                  "{chatMessages[0]?.text || 'Loading message...'}"
+                </p>
+              </div>
+
+              {/* ── 💬 Promise-to-Pay Chat ── */}
+              <div>
+                <strong style={{ color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                  <span>💬</span> Promise-to-Pay Chat
+                </strong>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Simulate customer reply. Try: "Bhai salary 5 ko aayegi" 😊</p>
+
+                <div className="chat-container">
+                  {chatMessages.map((msg, i) => (
+                    <div key={i} className={`chat-bubble ${msg.role === 'agent' ? 'outbound' : msg.role === 'customer' ? 'inbound' : 'system'}`}>
+                      {msg.text}
+                    </div>
+                  ))}
+                  {ptpLoading && (
+                    <div className="chat-bubble system">🤖 AI is analyzing your reply...</div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="chat-input-row">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && sendChatReply()}
+                    placeholder="Reply as customer (Hindi/English)..."
+                    className="search-input"
+                    style={{ flex: 1, width: 'auto' }}
+                    disabled={ptpLoading}
+                  />
+                  <button
+                    onClick={sendChatReply}
+                    disabled={ptpLoading || !chatInput.trim()}
+                    style={{ background: '#10b981', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                  >
+                    <Send size={14} /> Send
+                  </button>
+                </div>
+              </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Live Demo Terminal Modal */}
+      {showDemoModal && (
+        <div className="modal-backdrop" style={{ zIndex: 999 }}>
+          <div className="modal-content" style={{ width: '800px', maxWidth: '90%', background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="panel-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem', marginBottom: '1rem' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#e2e8f0' }}>
+                <Activity size={18} className={demoRunning ? "pulsing-icon" : ""} color={demoRunning ? "#10b981" : "#64748b"} />
+                Live AI Recovery Stream
+              </h3>
+              <button onClick={() => setShowDemoModal(false)} disabled={demoRunning} style={{ background: 'none', border: 'none', color: demoRunning ? '#475569' : 'var(--text-secondary)', cursor: demoRunning ? 'not-allowed' : 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{
+              background: '#000',
+              color: '#10b981',
+              fontFamily: 'monospace',
+              padding: '1.5rem',
+              borderRadius: '0.5rem',
+              height: '400px',
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+              fontSize: '0.85rem',
+              lineHeight: '1.5'
+            }}>
+              {demoOutput.length === 0 ? 'Connecting to AI Engine...' : demoOutput.join('\n')}
+              {demoRunning && <span className="cursor-blink">_</span>}
+            </div>
+            {!demoRunning && demoOutput.length > 0 && (
+              <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+                <button onClick={() => { setShowDemoModal(false); fetchLogs(); }} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
+                  View in Dashboard
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

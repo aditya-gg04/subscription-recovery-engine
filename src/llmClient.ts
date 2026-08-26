@@ -298,3 +298,80 @@ Call the generate_recovery_message tool with your message.`;
 
   return null;
 }
+
+// PTP detection tool
+const detectPromiseToPayTool = {
+  name: "detect_promise_to_pay",
+  description: "Analyzes a customer's message to determine if they are making a 'Promise to Pay' (PTP), which means they are committing to pay on or by a specific future date.",
+  parameters: {
+    type: SchemaType.OBJECT,
+    properties: {
+      is_promise_to_pay: {
+        type: SchemaType.BOOLEAN,
+        description: "True if the customer explicitly mentions a future date or timeframe when they will pay. False otherwise."
+      },
+      proposed_date_iso: {
+        type: SchemaType.STRING,
+        description: "If is_promise_to_pay is true, extract the promised date and format it as an ISO 8601 UTC timestamp (e.g., '2026-09-05T00:00:00.000Z'). If the user says '5th', assume the upcoming 5th of the month. If no clear date is found or is_promise_to_pay is false, return null."
+      }
+    },
+    required: ["is_promise_to_pay"]
+  }
+};
+
+export async function askLLMToDetectPromiseToPay(customerMessage: string, currentDate: string): Promise<{ is_promise_to_pay: boolean, proposed_date_iso: string | null }> {
+  const prompt = `You are a helpful AI analyzing a customer's reply to a payment recovery message.
+Current date (UTC): ${currentDate}
+
+Customer's message: "${customerMessage}"
+
+Determine if this message is a 'Promise to Pay' (e.g., 'I will pay on the 5th', 'salary aayegi 5 ko tab dunga', 'kal kar dunga'). 
+If it is, extract the date they promised to pay on and format it as an ISO 8601 UTC timestamp. 
+Call the detect_promise_to_pay tool with your answer.`;
+
+  try {
+    const model = gemini.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      tools: [{ functionDeclarations: [detectPromiseToPayTool] }]
+    });
+    const response = await model.generateContent(prompt);
+    const call = response.response.functionCalls()?.[0];
+    if (call && call.name === 'detect_promise_to_pay') {
+      const args = call.args as any;
+      return {
+        is_promise_to_pay: args.is_promise_to_pay,
+        proposed_date_iso: args.proposed_date_iso || null
+      };
+    }
+  } catch (e) {
+    console.warn("[LLM] Gemini PTP detection failed, trying Groq...");
+  }
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: prompt }],
+      model: GROQ_MODEL,
+      tools: [{
+        type: 'function',
+        function: {
+          name: detectPromiseToPayTool.name,
+          description: detectPromiseToPayTool.description,
+          parameters: detectPromiseToPayTool.parameters as any
+        }
+      }],
+      tool_choice: { type: 'function', function: { name: 'detect_promise_to_pay' } }
+    });
+    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
+    if (toolCall && toolCall.function.name === 'detect_promise_to_pay') {
+      const args = JSON.parse(toolCall.function.arguments);
+      return {
+        is_promise_to_pay: args.is_promise_to_pay,
+        proposed_date_iso: args.proposed_date_iso || null
+      };
+    }
+  } catch (e) {
+    console.warn("[LLM] Groq PTP detection failed.");
+  }
+
+  return { is_promise_to_pay: false, proposed_date_iso: null };
+}
