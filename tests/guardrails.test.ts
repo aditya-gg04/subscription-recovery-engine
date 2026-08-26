@@ -72,7 +72,7 @@ describe("Guardrails", () => {
   });
 
   it("G-3: Never schedule_retry for specific hard decline reasons", () => {
-    const severeReasons = ['card_expired', 'invalid_card', 'stolen_card', 'restricted_card', 'do_not_honor'];
+    const severeReasons = ['payment_risk_check_failed'];
     
     for (const reason of severeReasons) {
       const event = createDummyEvent({ attempt_number: 1 });

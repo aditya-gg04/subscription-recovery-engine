@@ -81,9 +81,9 @@ describe("Policy Engine", () => {
     expect(decision.action_type).toBe("send_nudge");
   });
 
-  it("HARD_DECLINE_SEVERE: hard_decline, stolen_card -> escalate", () => {
+  it("HARD_DECLINE_SEVERE: hard_decline, payment_risk_check_failed -> escalate", () => {
     const event = createDummyEvent({ attempt_number: 1 });
-    const diagnosis = createDummyDiagnosis({ root_cause_category: "hard_decline", root_cause_label: "stolen_card" });
+    const diagnosis = createDummyDiagnosis({ root_cause_category: "hard_decline", root_cause_label: "payment_risk_check_failed" });
     const decision = evaluatePolicy(diagnosis, event);
     expect(decision.rule_fired).toBe("HARD_DECLINE_SEVERE");
     expect(decision.action_type).toBe("escalate");

@@ -14,7 +14,7 @@ import { Diagnosis, PolicyDecision, RecoveryEvent } from './schemas.js';
  */
 
 const SEVERE_HARD_DECLINES = [
-  'card_expired', 'invalid_card', 'stolen_card', 'restricted_card', 'do_not_honor'
+  'payment_risk_check_failed'
 ];
 
 export function evaluatePolicy(

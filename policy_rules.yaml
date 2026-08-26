@@ -61,9 +61,7 @@ rules:
     condition:
       root_cause_category: hard_decline
       root_cause_label_in:
-        - do_not_honor
-        - stolen_card
-        - restricted_card
+        - payment_risk_check_failed
     action: escalate
     constraint: "Never retry same instrument, under any condition. Escalate immediately."
 
