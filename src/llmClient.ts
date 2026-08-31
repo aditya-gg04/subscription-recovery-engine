@@ -20,8 +20,8 @@ import { RecoveryEvent, RootCauseCategory } from './schemas.js';
 const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'dummy_gemini');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy_groq' });
 
-// Active Groq model — mixtral-8x7b-32768 was deprecated; llama-3.3-70b-versatile is current.
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+// Active Groq model fallback
+const GROQ_MODEL = 'openai/gpt-oss-20b';
 
 export interface ClassificationResult {
   root_cause_category: RootCauseCategory;
@@ -105,7 +105,7 @@ Call the classify_failure tool with your answer.`;
   // Try Gemini first
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [classifyFailureTool] }]
     });
 
@@ -186,7 +186,7 @@ Call the suggest_retry_timing tool with your answer.`;
   // Try Gemini first
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [suggestRetryTimingTool] }]
     });
     const response = await model.generateContent(prompt);
@@ -259,7 +259,7 @@ Call the generate_recovery_message tool with your message.`;
   // Try Gemini first
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [generateRecoveryMessageTool] }]
     });
     const response = await model.generateContent(prompt);
@@ -331,7 +331,7 @@ Call the detect_promise_to_pay tool with your answer.`;
 
   try {
     const model = gemini.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       tools: [{ functionDeclarations: [detectPromiseToPayTool] }]
     });
     const response = await model.generateContent(prompt);

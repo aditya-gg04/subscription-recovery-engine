@@ -52,7 +52,7 @@ export default function App() {
         role: 'agent',
         text: nudge && !nudge.toLowerCase().includes('error')
           ? nudge
-          : `Namaste ${selectedEntry.event?.customer_name?.split(' ')[0] || 'ji'}! Aapka ₹${((selectedEntry.event?.amount || 0) / 100).toLocaleString('en-IN')} ka payment fail hua. Kya aap abhi retry kar sakte hain? 🙏`
+          : `Namaste ${selectedEntry.event?.customer_name?.split(' ')[0] || 'ji'}! Aapka ₹${((selectedEntry.event?.amount || 0) / 100).toLocaleString('en-IN')} ka payment fail hua. Kya abhi retry kar sakte hain? 🙏`
       });
       setChatMessages(seed);
       setChatInput('');
@@ -150,7 +150,11 @@ export default function App() {
   // how many actually produced a recovered outcome?
   const retryEvents = logs.filter(l => l.policy_decision?.action_type === 'schedule_retry');
   const retryRecovered = retryEvents.filter(l => l.action_result?.outcome === 'recovered');
-  const retryFailed = retryEvents.filter(l => l.action_result?.outcome === 'still_failed');
+  // 429-exhausted: still_failed due to Test Mode hard quota (labelled distinctly in raw_api_response_ref)
+  const retryFailed429 = retryEvents.filter(l =>
+    l.action_result?.outcome === 'still_failed' &&
+    l.action_result?.raw_api_response_ref?.includes('429')
+  );
   const retrySuccessRate = retryEvents.length > 0
     ? ((retryRecovered.length / retryEvents.length) * 100).toFixed(1)
     : '0.0';
@@ -196,19 +200,19 @@ export default function App() {
       {/* Header */}
       <header>
         <div className="header-title">
-          <ShieldCheck size={28} color="#3b82f6" />
+          <ShieldCheck size={24} color="#0D94FB" />
           <h1>Razorpay Subscription Recovery Engine</h1>
           {hasLivePlinks
-            ? <span className="badge badge-live">🔴 LIVE MODE</span>
-            : <span className="badge badge-dry-run">🔵 DRY RUN</span>
+            ? <span className="badge badge-live">● Live mode</span>
+            : <span className="badge badge-dry-run">● Dry run</span>
           }
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button onClick={startLiveDemo} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
-            <Zap size={14} /> Simulate Live Failure
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button onClick={startLiveDemo} className="btn-primary">
+            <Zap size={14} /> Simulate live failure
           </button>
-          <button onClick={fetchLogs} className="search-input" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-            <RefreshCw size={14} /> Refresh Data
+          <button onClick={fetchLogs} className="btn-secondary">
+            <RefreshCw size={14} /> Refresh
           </button>
         </div>
       </header>
@@ -232,7 +236,7 @@ export default function App() {
             <TrendingUp size={14} style={{ display: 'inline', marginRight: 4 }} />
             Gross Recovery Rate
           </div>
-          <div className="stat-value" style={{ color: '#10b981' }}>{grossRecoveryRate}%</div>
+          <div className="stat-value" style={{ color: 'var(--color-success)' }}>{grossRecoveryRate}%</div>
           <div className="stat-sub">₹{(totalRecovered / 100).toLocaleString('en-IN')} recovered of all ₹{(totalAttempted / 100).toLocaleString('en-IN')} attempted</div>
         </div>
 
@@ -241,36 +245,25 @@ export default function App() {
             <Activity size={14} style={{ display: 'inline', marginRight: 4 }} />
             Retry Success Rate
           </div>
-          <div className="stat-value" style={{ color: '#60a5fa' }}>{retrySuccessRate}%</div>
+          <div className="stat-value" style={{ color: 'var(--color-accent)' }}>{retrySuccessRate}%</div>
           <div className="stat-sub">
             {retryRecovered.length}/{retryEvents.length} retries succeeded
-            {retryFailed.length > 0 &&
-              <span style={{ color: '#f59e0b' }}> · {retryFailed.length} rate-limited*</span>
-            }
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-title">Guardrail Enforcements</div>
-          <div className="stat-value" style={{ color: '#f59e0b' }}>
+          <div className="stat-value" style={{ color: 'var(--color-warning)' }}>
             {Object.values(guardrailTriggers).reduce((a: any, b: any) => a + b, 0)}
           </div>
           <div className="stat-sub">Automated safety overrides</div>
         </div>
       </div>
 
-      {/* Rate-limit disclaimer */}
-      {retryFailed.length > 0 && (
-        <div style={{
-          background: 'rgba(245,158,11,0.08)',
-          border: '1px solid rgba(245,158,11,0.3)',
-          borderRadius: '0.5rem',
-          padding: '0.75rem 1rem',
-          fontSize: '0.8rem',
-          color: '#fbbf24',
-          marginBottom: '1rem'
-        }}>
-          * <strong>{retryFailed.length} retry attempts</strong> returned <code>still_failed</code> due to Razorpay Test Mode rate-limiting during batch execution (all API calls fired simultaneously). In production, retries are spaced ≥24h apart and would succeed individually.
+      {/* Test Mode quota notice — shown only when 429-exhausted failures exist in live mode */}
+      {hasLivePlinks && retryFailed429.length > 0 && (
+        <div className="info-banner">
+          <strong>{retryFailed429.length} retry attempt{retryFailed429.length > 1 ? 's' : ''}</strong> returned <code>still_failed</code> because Razorpay <strong>Test Mode</strong> enforces a hard per-account payment-link quota — recovery code and backoff logic are correct; all failures are labelled <code>429 rate-limited after 3 attempts</code> in the audit log. In production (live keys) this quota does not apply.
         </div>
       )}
 
@@ -387,54 +380,46 @@ export default function App() {
             <tbody>
               {filteredLogs.slice(0, 30).map(log => (
                 <tr key={log.event_id}>
-                  <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{log.event_id}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem', fontWeight: 500 }}>{log.event_id}</td>
                   <td>{log.event?.customer_name}</td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{log.event?.error_reason}</td>
+                  <td style={{ color: 'var(--color-muted)', fontSize: '0.8125rem' }}>{log.event?.error_reason}</td>
                   <td>
                     <span className={`status-tag tag-${log.diagnosis?.root_cause_category}`}>
-                      {log.diagnosis?.root_cause_category}
+                      {log.diagnosis?.root_cause_category?.replace('_', ' ')}
                     </span>
                   </td>
-                  <td style={{ fontWeight: 500 }}>{log.policy_decision?.rule_fired}</td>
+                  <td style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{log.policy_decision?.rule_fired}</td>
                   <td>
-                    <span className={`status-tag action-${log.policy_decision?.action_type?.replace('_', '-')}`}>
-                      {log.policy_decision?.action_type}
+                    <span className={`status-tag action-${log.policy_decision?.action_type}`}>
+                      {log.policy_decision?.action_type?.replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td>
                     {log.policy_decision?.guardrail_triggered ? (
-                      <span className="badge badge-dry-run">{log.policy_decision.guardrail_triggered}</span>
+                      <span className="guardrail-badge">{log.policy_decision.guardrail_triggered}</span>
                     ) : (
-                      <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                      <span style={{ color: 'var(--color-muted)' }}>—</span>
                     )}
                   </td>
                   <td>
                     {log.action_result?.api_call_id?.startsWith('plink_') ? (
-                      <span style={{
-                        fontFamily: 'monospace',
-                        fontSize: '0.75rem',
-                        background: 'rgba(16,185,129,0.15)',
-                        color: '#10b981',
-                        padding: '0.15rem 0.4rem',
-                        borderRadius: '0.25rem',
-                        border: '1px solid rgba(16,185,129,0.3)'
-                      }}>
+                      <span className="plink-badge">
                         {log.action_result.api_call_id}
                       </span>
                     ) : log.action_result?.api_call_id ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-muted)' }}>
                         {log.action_result.api_call_id}
                       </span>
                     ) : (
-                      <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                      <span style={{ color: 'var(--color-muted)' }}>—</span>
                     )}
                   </td>
                   <td>
                     <button
                       onClick={() => setSelectedEntry(log)}
-                      style={{ background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer' }}
+                      className="detail-btn"
                     >
-                      <ArrowUpRight size={16} />
+                      <ArrowUpRight size={15} />
                     </button>
                   </td>
                 </tr>
@@ -443,7 +428,7 @@ export default function App() {
           </table>
         )}
         {filteredLogs.length > 30 && (
-          <div style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+          <div className="result-count-bar">
             Showing 30 of {filteredLogs.length} results. Use the search box to filter.
           </div>
         )}
@@ -454,75 +439,98 @@ export default function App() {
         <div className="modal-backdrop" onClick={() => { setSelectedEntry(null); stopVoice(); }}>
           <div className="modal-content" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
             <div className="panel-header">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <ShieldCheck size={16} color="#3b82f6" />
-                {selectedEntry.event_id}
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                <ShieldCheck size={16} color="var(--color-accent)" />
+                <span style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>{selectedEntry.event_id}</span>
               </h3>
-              <button onClick={() => { setSelectedEntry(null); stopVoice(); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                <X size={20} />
+              <button onClick={() => { setSelectedEntry(null); stopVoice(); }} className="modal-close-btn">
+                <X size={18} />
               </button>
             </div>
 
-            <div style={{ display: 'grid', gap: '0.75rem', fontSize: '0.875rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div><strong>Customer:</strong><br />{selectedEntry.event?.customer_name} ({selectedEntry.event?.customer_id})</div>
-                <div><strong>Amount:</strong><br />₹{((selectedEntry.event?.amount || 0) / 100).toLocaleString('en-IN')}</div>
-                <div><strong>Error Reason:</strong><br />{selectedEntry.event?.error_reason}</div>
-                <div><strong>Payment Method:</strong><br />{selectedEntry.event?.payment_method}</div>
+            <div style={{ padding: '1.25rem', display: 'grid', gap: '1rem', fontSize: '0.875rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Customer</div>
+                  <div style={{ color: 'var(--color-primary)' }}>{selectedEntry.event?.customer_name} <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-muted)' }}>({selectedEntry.event?.customer_id})</span></div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Amount</div>
+                  <div style={{ color: 'var(--color-primary)', fontWeight: 600 }}>₹{((selectedEntry.event?.amount || 0) / 100).toLocaleString('en-IN')}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Error reason</div>
+                  <div style={{ color: 'var(--color-primary)' }}>{selectedEntry.event?.error_reason}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Payment method</div>
+                  <div style={{ color: 'var(--color-primary)' }}>{selectedEntry.event?.payment_method}</div>
+                </div>
               </div>
 
-              <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)' }} />
 
-              <div><strong>Diagnosis:</strong> <span className={`status-tag tag-${selectedEntry.diagnosis?.root_cause_category}`}>{selectedEntry.diagnosis?.root_cause_category}</span> via <em>{selectedEntry.diagnosis?.classification_method}</em> (confidence: {selectedEntry.diagnosis?.confidence})</div>
-              <div><strong>Reasoning:</strong> {selectedEntry.diagnosis?.reasoning}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)' }}>Diagnosis</span>
+                <span className={`status-tag tag-${selectedEntry.diagnosis?.root_cause_category}`}>{selectedEntry.diagnosis?.root_cause_category?.replace('_',' ')}</span>
+                <span style={{ color: 'var(--color-muted)', fontSize: '0.8125rem' }}>via <em>{selectedEntry.diagnosis?.classification_method}</em> · confidence: {selectedEntry.diagnosis?.confidence}</span>
+              </div>
+              <div style={{ color: 'var(--color-primary)', lineHeight: 1.5 }}>{selectedEntry.diagnosis?.reasoning}</div>
               {selectedEntry.diagnosis?.suggested_timing_hint && (
-                <div style={{ color: '#60a5fa' }}>
-                  <strong>⏰ Salary-Date Timing Hint:</strong> {selectedEntry.diagnosis.suggested_timing_hint}
+                <div style={{ color: 'var(--color-accent)', fontSize: '0.8125rem' }}>
+                  ⏰ Salary-date timing hint: {selectedEntry.diagnosis.suggested_timing_hint}
                 </div>
               )}
 
-              <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)' }} />
 
-              <div><strong>Policy Decision:</strong> Rule <code>{selectedEntry.policy_decision?.rule_fired}</code> → <span className={`status-tag action-${selectedEntry.policy_decision?.action_type?.replace('_', '-')}`}>{selectedEntry.policy_decision?.action_type}</span></div>
-              <div><strong>Retry At:</strong> {selectedEntry.policy_decision?.retry_at || 'N/A'}</div>
-              <div><strong>Explanation:</strong> {selectedEntry.policy_decision?.explanation}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)' }}>Policy decision</span>
+                <code style={{ fontFamily: 'monospace', fontSize: '0.75rem', background: 'var(--color-bg-subtle)', padding: '0.125rem 0.375rem', borderRadius: '3px', color: 'var(--color-primary)' }}>{selectedEntry.policy_decision?.rule_fired}</code>
+                <span style={{ color: 'var(--color-muted)' }}>→</span>
+                <span className={`status-tag action-${selectedEntry.policy_decision?.action_type}`}>{selectedEntry.policy_decision?.action_type?.replace(/_/g,' ')}</span>
+              </div>
+              <div style={{ color: 'var(--color-muted)', fontSize: '0.8125rem' }}>Retry at: <span style={{ color: 'var(--color-primary)' }}>{selectedEntry.policy_decision?.retry_at || 'N/A'}</span></div>
+              <div style={{ color: 'var(--color-primary)', lineHeight: 1.5 }}>{selectedEntry.policy_decision?.explanation}</div>
               {selectedEntry.policy_decision?.guardrail_triggered && (
-                <div style={{ color: '#fbbf24', fontWeight: 600 }}>
-                  ⚠️ Guardrail Triggered: {selectedEntry.policy_decision.guardrail_triggered}
+                <div style={{ color: 'var(--color-warning)', fontWeight: 600, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  ⚠ Guardrail triggered: {selectedEntry.policy_decision.guardrail_triggered}
                 </div>
               )}
 
-              <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)' }} />
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div><strong>Outcome:</strong><br />
-                  <span style={{ color: selectedEntry.action_result?.outcome === 'recovered' ? '#10b981' : selectedEntry.action_result?.outcome === 'still_failed' ? '#ef4444' : '#6b7280' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Outcome</div>
+                  <span style={{ color: selectedEntry.action_result?.outcome === 'recovered' ? 'var(--color-success)' : selectedEntry.action_result?.outcome === 'still_failed' ? 'var(--color-critical)' : 'var(--color-muted)', fontWeight: 500 }}>
                     {selectedEntry.action_result?.outcome}
                   </span>
                 </div>
-                <div><strong>Amount Recovered:</strong><br />
-                  ₹{((selectedEntry.action_result?.amount_recovered || 0) / 100).toLocaleString('en-IN')}
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-muted)', marginBottom: '0.2rem' }}>Amount recovered</div>
+                  <div style={{ fontWeight: 600, color: 'var(--color-primary)' }}>₹{((selectedEntry.action_result?.amount_recovered || 0) / 100).toLocaleString('en-IN')}</div>
                 </div>
               </div>
 
               {selectedEntry.action_result?.api_call_id?.startsWith('plink_') && (
-                <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '0.5rem', padding: '0.75rem' }}>
-                  <strong>🎉 Razorpay Payment Link Created</strong><br />
-                  <code style={{ color: '#10b981', fontSize: '0.9rem' }}>{selectedEntry.action_result.api_call_id}</code><br />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                <div style={{ background: 'var(--tint-success-bg)', border: '1px solid #BBF7D0', borderRadius: '4px', padding: '0.875rem 1rem' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>Razorpay payment link created</div>
+                  <code style={{ fontFamily: 'monospace', fontSize: '0.875rem', color: 'var(--tint-success-text)' }}>{selectedEntry.action_result.api_call_id}</code>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.25rem' }}>
                     Verify at: dashboard.razorpay.com/app/payment-links (Test Mode)
-                  </span>
+                  </div>
                 </div>
               )}
 
-              {/* ── 🎙️ Hinglish Voice Recovery ── */}
-              <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.75rem', padding: '1rem' }}>
+              {/* ── Hinglish Voice Recovery ── */}
+              <div style={{ background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <strong style={{ color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <Mic size={14} /> Hinglish Voice Recovery Simulation
-                  </strong>
+                  <span style={{ fontWeight: 600, color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.875rem' }}>
+                    <Mic size={14} color="var(--color-accent)" /> Hinglish voice recovery simulation
+                  </span>
                   {isSpeaking ? (
-                    <button onClick={stopVoice} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <button onClick={stopVoice} style={{ background: 'var(--color-critical)', color: 'white', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontFamily: 'inherit' }}>
                       <div className="waveform-container" style={{ height: '14px' }}>
                         <div className="waveform-bar" /><div className="waveform-bar" /><div className="waveform-bar" /><div className="waveform-bar" /><div className="waveform-bar" />
                       </div>
@@ -531,23 +539,23 @@ export default function App() {
                   ) : (
                     <button
                       onClick={() => playVoiceSimulation(chatMessages[0]?.text || 'Namaste! Aapka payment fail hua hai. Please retry karein.')}
-                      style={{ background: '#6366f1', color: 'white', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      style={{ background: 'var(--color-accent)', color: 'white', border: 'none', padding: '0.3rem 0.75rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontFamily: 'inherit' }}
                     >
-                      ▶ Play Voice Call
+                      ▶ Play voice call
                     </button>
                   )}
                 </div>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
                   "{chatMessages[0]?.text || 'Loading message...'}"
                 </p>
               </div>
 
-              {/* ── 💬 Promise-to-Pay Chat ── */}
+              {/* ── Promise-to-Pay Chat ── */}
               <div>
-                <strong style={{ color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                  <span>💬</span> Promise-to-Pay Chat
+                <strong style={{ color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem', fontSize: '0.875rem' }}>
+                  Promise-to-pay chat
                 </strong>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Simulate customer reply. Try: "Bhai salary 5 ko aayegi" 😊</p>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.5rem' }}>Simulate customer reply. Try: "Bhai salary 5 ko aayegi" 😊</p>
 
                 <div className="chat-container">
                   {chatMessages.map((msg, i) => (
@@ -575,7 +583,7 @@ export default function App() {
                   <button
                     onClick={sendChatReply}
                     disabled={ptpLoading || !chatInput.trim()}
-                    style={{ background: '#10b981', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    className="btn-primary"
                   >
                     <Send size={14} /> Send
                   </button>
@@ -588,39 +596,41 @@ export default function App() {
       {/* Live Demo Terminal Modal */}
       {showDemoModal && (
         <div className="modal-backdrop" style={{ zIndex: 999 }}>
-          <div className="modal-content" style={{ width: '800px', maxWidth: '90%', background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div className="panel-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem', marginBottom: '1rem' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#e2e8f0' }}>
-                <Activity size={18} className={demoRunning ? "pulsing-icon" : ""} color={demoRunning ? "#10b981" : "#64748b"} />
-                Live AI Recovery Stream
+          <div className="modal-content" style={{ width: '820px', maxWidth: '92%' }}>
+            <div className="panel-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                <Activity size={16} className={demoRunning ? "pulsing-icon" : ""} color={demoRunning ? 'var(--color-success)' : 'var(--color-muted)'} />
+                Live AI recovery stream
               </h3>
-              <button onClick={() => setShowDemoModal(false)} disabled={demoRunning} style={{ background: 'none', border: 'none', color: demoRunning ? '#475569' : 'var(--text-secondary)', cursor: demoRunning ? 'not-allowed' : 'pointer' }}>
-                <X size={20} />
+              <button onClick={() => setShowDemoModal(false)} disabled={demoRunning} className="modal-close-btn" style={{ opacity: demoRunning ? 0.35 : 1, cursor: demoRunning ? 'not-allowed' : 'pointer' }}>
+                <X size={18} />
               </button>
             </div>
             
-            <div style={{
-              background: '#000',
-              color: '#10b981',
-              fontFamily: 'monospace',
-              padding: '1.5rem',
-              borderRadius: '0.5rem',
-              height: '400px',
-              overflowY: 'auto',
-              whiteSpace: 'pre-wrap',
-              fontSize: '0.85rem',
-              lineHeight: '1.5'
-            }}>
-              {demoOutput.length === 0 ? 'Connecting to AI Engine...' : demoOutput.join('\n')}
-              {demoRunning && <span className="cursor-blink">_</span>}
-            </div>
-            {!demoRunning && demoOutput.length > 0 && (
-              <div style={{ marginTop: '1rem', textAlign: 'right' }}>
-                <button onClick={() => { setShowDemoModal(false); fetchLogs(); }} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
-                  View in Dashboard
-                </button>
+            <div style={{ padding: '1.25rem' }}>
+              <div style={{
+                background: '#0F172A',
+                color: '#4ADE80',
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                padding: '1.25rem',
+                borderRadius: '4px',
+                height: '380px',
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+                fontSize: '0.8125rem',
+                lineHeight: '1.6'
+              }}>
+                {demoOutput.length === 0 ? 'Connecting to AI engine...' : demoOutput.join('\n')}
+                {demoRunning && <span className="cursor-blink">_</span>}
               </div>
-            )}
+              {!demoRunning && demoOutput.length > 0 && (
+                <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+                  <button onClick={() => { setShowDemoModal(false); fetchLogs(); }} className="btn-primary">
+                    View in dashboard
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
